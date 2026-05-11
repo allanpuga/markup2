@@ -198,9 +198,9 @@ class CostsState(rx.State):
 
     @rx.event
     async def load_costs(self):
-        from gest_o_markup_refatorada.states.auth_state import AuthState
-        from gest_o_markup_refatorada.states.profile_state import ProfileState
-        from gest_o_markup_refatorada.states.vehicle_state import VehicleState
+        from app.states.auth_state import AuthState
+        from app.states.profile_state import ProfileState
+        from app.states.vehicle_state import VehicleState
 
         auth = await self.get_state(AuthState)
         profile = await self.get_state(ProfileState)
@@ -260,8 +260,8 @@ class CostsState(rx.State):
 
     @rx.event
     async def save_costs(self, form_data: dict):
-        from gest_o_markup_refatorada.states.auth_state import AuthState
-        from gest_o_markup_refatorada.states.profile_state import ProfileState
+        from app.states.auth_state import AuthState
+        from app.states.profile_state import ProfileState
 
         auth = await self.get_state(AuthState)
         profile = await self.get_state(ProfileState)

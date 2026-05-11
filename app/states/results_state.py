@@ -14,9 +14,9 @@ class ResultsState(rx.State):
 
     @rx.event
     async def recalculate(self):
-        from gest_o_markup_refatorada.states.profile_state import ProfileState
-        from gest_o_markup_refatorada.states.vehicle_state import VehicleState
-        from gest_o_markup_refatorada.states.costs_state import CostsState
+        from app.states.profile_state import ProfileState
+        from app.states.vehicle_state import VehicleState
+        from app.states.costs_state import CostsState
 
         profile = await self.get_state(ProfileState)
         vehicle_state = await self.get_state(VehicleState)

@@ -21,7 +21,7 @@ class ProfileState(rx.State):
 
     @rx.event
     async def load_profile(self):
-        from gest_o_markup_refatorada.states.auth_state import AuthState
+        from app.states.auth_state import AuthState
 
         auth = await self.get_state(AuthState)
         if not auth.user_id:
@@ -109,7 +109,7 @@ class ProfileState(rx.State):
         email = form_data.get("email", "").strip()
         if not nome or not email:
             return rx.toast("Nome e E-mail são obrigatórios.")
-        from gest_o_markup_refatorada.states.auth_state import AuthState
+        from app.states.auth_state import AuthState
 
         auth = await self.get_state(AuthState)
         self.nome = nome

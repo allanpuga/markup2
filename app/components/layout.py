@@ -1,6 +1,6 @@
 import reflex as rx
-from gest_o_markup_refatorada.components.sidebar import sidebar
-from gest_o_markup_refatorada.states.auth_state import AuthState
+from app.components.sidebar import sidebar
+from app.states.auth_state import AuthState
 
 
 def base_layout(content: rx.Component, route: str) -> rx.Component:

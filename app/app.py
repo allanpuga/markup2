@@ -1,6 +1,6 @@
 import reflex as rx
-from gest_o_markup_refatorada.states.auth_state import AuthState
-from gest_o_markup_refatorada.components.layout import base_layout
+from app.states.auth_state import AuthState
+from app.components.layout import base_layout
 
 
 def login_page() -> rx.Component:
@@ -195,8 +195,8 @@ def recover_page() -> rx.Component:
     )
 
 
-from gest_o_markup_refatorada.states.profile_state import ProfileState
-from gest_o_markup_refatorada.states.vehicle_state import VehicleState
+from app.states.profile_state import ProfileState
+from app.states.vehicle_state import VehicleState
 
 
 def profile_page() -> rx.Component:
@@ -621,8 +621,8 @@ def vehicles_page() -> rx.Component:
     )
 
 
-from gest_o_markup_refatorada.states.costs_state import CostsState
-from gest_o_markup_refatorada.states.results_state import ResultsState
+from app.states.costs_state import CostsState
+from app.states.results_state import ResultsState
 
 
 def costs_page() -> rx.Component:

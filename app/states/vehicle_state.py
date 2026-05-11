@@ -26,7 +26,7 @@ class VehicleState(rx.State):
 
     @rx.event
     async def load_vehicles(self):
-        from gest_o_markup_refatorada.states.auth_state import AuthState
+        from app.states.auth_state import AuthState
 
         auth = await self.get_state(AuthState)
         if not auth.user_id:
@@ -187,7 +187,7 @@ class VehicleState(rx.State):
     async def add_vehicle(self, form_data: dict):
         if not self.marca_name or not self.modelo_name or (not self.ano_name):
             return rx.toast("Selecione marca, modelo e ano.")
-        from gest_o_markup_refatorada.states.auth_state import AuthState
+        from app.states.auth_state import AuthState
 
         auth = await self.get_state(AuthState)
         user_id = auth.user_id
@@ -222,12 +222,12 @@ class VehicleState(rx.State):
 
     @rx.event
     async def remove_vehicle(self, v_id: str):
-        from gest_o_markup_refatorada.states.auth_state import AuthState
+        from app.states.auth_state import AuthState
 
         auth = await self.get_state(AuthState)
         self.vehicles = [v for v in self.vehicles if v["id"] != v_id]
         vehicles_db[auth.user_id] = self.vehicles
-        from gest_o_markup_refatorada.states.profile_state import ProfileState, profiles_db
+        from app.states.profile_state import ProfileState, profiles_db
 
         profile = await self.get_state(ProfileState)
         if profile.veiculo_ativo_id == v_id:
@@ -237,8 +237,8 @@ class VehicleState(rx.State):
 
     @rx.event
     async def set_active_vehicle(self, v_id: str):
-        from gest_o_markup_refatorada.states.profile_state import ProfileState, profiles_db
-        from gest_o_markup_refatorada.states.auth_state import AuthState
+        from app.states.profile_state import ProfileState, profiles_db
+        from app.states.auth_state import AuthState
 
         profile = await self.get_state(ProfileState)
         auth = await self.get_state(AuthState)
