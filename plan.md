@@ -5,5 +5,5 @@
 
 ## Phase 27: Build and Deployment
 - [x] Validate that the updated legal pages are included in the production build
-- [ ] Trigger a fresh deployment for the current hosted application
-- [ ] Confirm the latest deployment status and public legal-page availability
+- [x] Trigger a fresh deployment for the current hosted application
+- [x] Confirm the latest deployment status and public legal-page availability
