@@ -18,8 +18,7 @@ from app.pages.auth import (
     register_page,
     recover_page,
     google_callback_page,
-    privacy_policy_page,
-    terms_of_service_page,
+from app.pages.legal import privacy_policy_page, terms_of_service_page
 )
 from app.pages.perfil import profile_page
 from app.pages.veiculos import vehicles_page
