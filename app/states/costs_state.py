@@ -1,9 +1,10 @@
 import reflex as rx
-
-costs_db: dict[tuple[str, str], dict] = {}
+from sqlalchemy import text
+from app.utils import _request_with_retry
 
 
 class CostsState(rx.State):
+    is_costs_loaded: bool = False
     has_active_vehicle: bool = False
     cf_ipva: float = 0.0
     cf_licenciamento: float = 0.0
@@ -11,6 +12,7 @@ class CostsState(rx.State):
     cf_seguro_carro: float = 0.0
     cf_inss: float = 155.32
     cf_internet: float = 60.0
+    cf_depreciacao: float = 0.0
     cv_alim_dia: float = 30.0
     cv_lavagem: float = 120.0
     preco_comb: float = 5.8
@@ -22,7 +24,12 @@ class CostsState(rx.State):
     cv_pneu: float = 1600.0
     cp_iss: float = 5.0
     cp_icms: float = 0.0
-    margem_iss: float = 30.0
+    cp_irpf: float = 0.0
+    cp_ipca: float = 4.62
+    margem_iss: float = 20.0
+    margem_icms: float = 20.0
+    remuneracao_semanal: float = 1551.0
+    salario_minimo: float = 1412.0
     is_auto_filled: bool = False
     vehicle_is_rental: bool = False
     info_ipva: str = ""
@@ -196,17 +203,37 @@ class CostsState(rx.State):
         except ValueError:
             return 0.0
 
+    @rx.event(background=True)
+    async def fetch_ipca(self):
+        try:
+            url = "https://servicodados.ibge.gov.br/api/v3/agregados/1737/periodos/-1/variaveis/2265?localidades=N1[all]"
+            res = _request_with_retry(url, timeout=10)
+            data = res.json()
+            resultados = data[0]["resultados"][0]["series"][0]["serie"]
+            last_key = list(resultados.keys())[-1]
+            ipca_value = float(resultados[last_key])
+            async with self:
+                self.cp_ipca = ipca_value
+        except Exception as e:
+            import logging
+
+            logging.exception(f"Error fetching IPCA: {e}")
+            async with self:
+                yield rx.toast("Erro ao carregar o IPCA. Tente novamente.")
+
     @rx.event
     async def load_costs(self):
         from app.states.auth_state import AuthState
         from app.states.profile_state import ProfileState
         from app.states.vehicle_state import VehicleState
 
+        self.is_costs_loaded = False
         auth = await self.get_state(AuthState)
         profile = await self.get_state(ProfileState)
         vehicle_state = await self.get_state(VehicleState)
         if not auth.user_id or not profile.veiculo_ativo_id:
             self.has_active_vehicle = False
+            self.is_costs_loaded = True
             return
         self.has_active_vehicle = True
         key = (auth.user_id, profile.veiculo_ativo_id)
@@ -221,29 +248,78 @@ class CostsState(rx.State):
         self.vehicle_is_rental = (
             v_data["tipo_posse"] == "Aluguel" if v_data else False
         )
-        if key in costs_db:
-            data = costs_db[key]
-            for k, v in data.items():
-                if hasattr(self, k):
-                    setattr(self, k, v)
-            self.is_auto_filled = False
-        else:
-            self.is_auto_filled = True
-            estado = profile.estado or "SP"
-            if self.vehicle_is_rental:
-                self.cf_ipva = 0.0
-                self.cf_licenciamento = 0.0
-            else:
-                fipe_val = (
-                    self._parse_fipe(v_data["valor_fipe"]) if v_data else 0.0
+        self.cf_inss = self.salario_minimo * 0.11
+        fipe_val = self._parse_fipe(v_data["valor_fipe"]) if v_data else 0.0
+        self.cf_depreciacao = fipe_val * 0.24 / 12
+        try:
+            async with rx.asession() as session:
+                result = await session.execute(
+                    text(
+                        "SELECT cf_ipva, cf_licenciamento, cf_seguro_obrig, cf_seguro_carro, cf_inss, cf_internet, cv_alim_dia, cv_lavagem, preco_comb, consumo_comb, tipo_comb, cv_manut_mensal, cv_oleo, cv_alinhamento, cv_pneu, cp_iss, cp_icms, margem_iss, cf_depreciacao, cp_irpf, cp_ipca, margem_icms, remuneracao_semanal FROM costs WHERE user_id = :uid AND vehicle_id = :vid"
+                    ),
+                    {"uid": auth.user_id, "vid": profile.veiculo_ativo_id},
                 )
-                rate = self._get_ipva_rate(estado)
-                self.cf_ipva = fipe_val * rate / 100
-                self.cf_licenciamento = self._get_licenciamento_fee(estado)
-            self.preco_comb = self._get_avg_fuel_price(estado)
-            self.consumo_comb = (
-                self._estimate_consumption(v_data["modelo"]) if v_data else 10.0
-            )
+                row = result.first()
+                if row:
+                    self.cf_ipva = float(row[0] or 0)
+                    self.cf_licenciamento = float(row[1] or 0)
+                    self.cf_seguro_obrig = float(row[2] or 0)
+                    self.cf_seguro_carro = float(row[3] or 0)
+                    self.cf_internet = float(row[5] or 0)
+                    self.cv_alim_dia = float(row[6] or 0)
+                    self.cv_lavagem = float(row[7] or 0)
+                    self.preco_comb = float(row[8] or 0)
+                    self.consumo_comb = float(row[9] or 10.0)
+                    self.tipo_comb = row[10] or "Gasolina"
+                    self.cv_manut_mensal = float(row[11] or 0)
+                    self.cv_oleo = float(row[12] or 0)
+                    self.cv_alinhamento = float(row[13] or 0)
+                    self.cv_pneu = float(row[14] or 0)
+                    self.cp_iss = float(row[15] or 0)
+                    self.cp_icms = float(row[16] or 0)
+                    self.margem_iss = float(row[17] or 20.0)
+                    if len(row) > 18:
+                        self.cp_irpf = float(
+                            row[19] if row[19] is not None else 0.0
+                        )
+                        self.cp_ipca = float(
+                            row[20] if row[20] is not None else 4.62
+                        )
+                        self.margem_icms = float(
+                            row[21] if row[21] is not None else 20.0
+                        )
+                    if len(row) > 22:
+                        self.remuneracao_semanal = float(
+                            row[22] if row[22] is not None else 1551.0
+                        )
+                    else:
+                        self.remuneracao_semanal = 1551.0
+                    self.is_auto_filled = False
+                else:
+                    self.remuneracao_semanal = 1551.0
+                    self.is_auto_filled = True
+                    estado = profile.estado or "SP"
+                    if self.vehicle_is_rental:
+                        self.cf_ipva = 0.0
+                        self.cf_licenciamento = 0.0
+                    else:
+                        rate = self._get_ipva_rate(estado)
+                        self.cf_ipva = fipe_val * rate / 100
+                        self.cf_licenciamento = self._get_licenciamento_fee(
+                            estado
+                        )
+                    self.preco_comb = self._get_avg_fuel_price(estado)
+                    self.consumo_comb = (
+                        self._estimate_consumption(v_data["modelo"])
+                        if v_data
+                        else 10.0
+                    )
+        except Exception as e:
+            import logging
+
+            logging.exception(f"Error loading costs: {e}")
+            yield rx.toast("Erro ao carregar custos do veículo.")
+        yield CostsState.fetch_ipca
         if self.vehicle_is_rental:
             self.info_ipva = "Incluído no aluguel"
             self.info_licenciamento = "Incluído no aluguel"
@@ -257,6 +333,7 @@ class CostsState(rx.State):
         self.info_combustivel = f"Média do estado ({profile.estado}): R$ {self._get_avg_fuel_price(profile.estado or 'SP'):.2f}"
         model_name = v_data["modelo"] if v_data else "veículo"
         self.info_consumo = f"Estimativa para {model_name}: {self._estimate_consumption(model_name):.1f} km/l"
+        self.is_costs_loaded = True
 
     @rx.event
     async def save_costs(self, form_data: dict):
@@ -266,7 +343,8 @@ class CostsState(rx.State):
         auth = await self.get_state(AuthState)
         profile = await self.get_state(ProfileState)
         if not auth.user_id or not profile.veiculo_ativo_id:
-            return rx.toast("Nenhum veículo ativo selecionado.")
+            yield rx.toast("Nenhum veículo ativo selecionado.")
+            return
         try:
             self.cf_ipva = float(form_data.get("cf_ipva", 0))
             self.cf_licenciamento = float(form_data.get("cf_licenciamento", 0))
@@ -288,27 +366,59 @@ class CostsState(rx.State):
             self.cp_iss = float(form_data.get("cp_iss", 0))
             self.cp_icms = float(form_data.get("cp_icms", 0))
             self.margem_iss = float(form_data.get("margem_iss", 0))
-            key = (auth.user_id, profile.veiculo_ativo_id)
-            costs_db[key] = {
-                "cf_ipva": self.cf_ipva,
-                "cf_licenciamento": self.cf_licenciamento,
-                "cf_seguro_obrig": self.cf_seguro_obrig,
-                "cf_seguro_carro": self.cf_seguro_carro,
-                "cf_inss": self.cf_inss,
-                "cf_internet": self.cf_internet,
-                "cv_alim_dia": self.cv_alim_dia,
-                "cv_lavagem": self.cv_lavagem,
-                "preco_comb": self.preco_comb,
-                "consumo_comb": self.consumo_comb,
-                "tipo_comb": self.tipo_comb,
-                "cv_manut_mensal": self.cv_manut_mensal,
-                "cv_oleo": self.cv_oleo,
-                "cv_alinhamento": self.cv_alinhamento,
-                "cv_pneu": self.cv_pneu,
-                "cp_iss": self.cp_iss,
-                "cp_icms": self.cp_icms,
-                "margem_iss": self.margem_iss,
-            }
-            return rx.toast("Custos salvos com sucesso!")
+            self.cp_ipca = float(form_data.get("cp_ipca", 4.62))
+            self.margem_icms = float(form_data.get("margem_icms", 20.0))
+            self.remuneracao_semanal = float(
+                form_data.get("remuneracao_semanal", 1551.0)
+            )
+            try:
+                async with rx.asession() as session:
+                    await session.execute(
+                        text("""
+                        INSERT INTO costs (user_id, vehicle_id, cf_ipva, cf_licenciamento, cf_seguro_obrig, cf_seguro_carro, cf_inss, cf_internet, cv_alim_dia, cv_lavagem, preco_comb, consumo_comb, tipo_comb, cv_manut_mensal, cv_oleo, cv_alinhamento, cv_pneu, cp_iss, cp_icms, margem_iss, cf_depreciacao, cp_irpf, cp_ipca, margem_icms, remuneracao_semanal)
+                        VALUES (:uid, :vid, :ipva, :lic, :sob, :scarro, :inss, :int, :alim, :lav, :pcomb, :ccomb, :tcomb, :manut, :oleo, :alin, :pneu, :iss, :icms, :miss, :deprec, :irpf, :ipca, :micms, :remun)
+                        ON DUPLICATE KEY UPDATE
+                            cf_ipva = VALUES(cf_ipva), cf_licenciamento = VALUES(cf_licenciamento), cf_seguro_obrig = VALUES(cf_seguro_obrig), cf_seguro_carro = VALUES(cf_seguro_carro),
+                            cf_inss = VALUES(cf_inss), cf_internet = VALUES(cf_internet), cv_alim_dia = VALUES(cv_alim_dia), cv_lavagem = VALUES(cv_lavagem),
+                            preco_comb = VALUES(preco_comb), consumo_comb = VALUES(consumo_comb), tipo_comb = VALUES(tipo_comb), cv_manut_mensal = VALUES(cv_manut_mensal),
+                            cv_oleo = VALUES(cv_oleo), cv_alinhamento = VALUES(cv_alinhamento), cv_pneu = VALUES(cv_pneu), cp_iss = VALUES(cp_iss), cp_icms = VALUES(cp_icms), margem_iss = VALUES(margem_iss),
+                            cf_depreciacao = VALUES(cf_depreciacao), cp_irpf = VALUES(cp_irpf), cp_ipca = VALUES(cp_ipca), margem_icms = VALUES(margem_icms), remuneracao_semanal = VALUES(remuneracao_semanal)
+                        """),
+                        {
+                            "uid": auth.user_id,
+                            "vid": profile.veiculo_ativo_id,
+                            "ipva": self.cf_ipva,
+                            "lic": self.cf_licenciamento,
+                            "sob": self.cf_seguro_obrig,
+                            "scarro": self.cf_seguro_carro,
+                            "inss": self.cf_inss,
+                            "int": self.cf_internet,
+                            "alim": self.cv_alim_dia,
+                            "lav": self.cv_lavagem,
+                            "pcomb": self.preco_comb,
+                            "ccomb": self.consumo_comb,
+                            "tcomb": self.tipo_comb,
+                            "manut": self.cv_manut_mensal,
+                            "oleo": self.cv_oleo,
+                            "alin": self.cv_alinhamento,
+                            "pneu": self.cv_pneu,
+                            "iss": self.cp_iss,
+                            "icms": self.cp_icms,
+                            "miss": self.margem_iss,
+                            "deprec": self.cf_depreciacao,
+                            "irpf": self.cp_irpf,
+                            "ipca": self.cp_ipca,
+                            "micms": self.margem_icms,
+                            "remun": self.remuneracao_semanal,
+                        },
+                    )
+                    await session.commit()
+                yield rx.toast("Custos salvos com sucesso!")
+                yield rx.redirect("/app/resultados")
+            except Exception as e:
+                import logging
+
+                logging.exception(f"Error saving costs: {e}")
+                yield rx.toast("Erro ao salvar custos. Tente novamente.")
         except ValueError:
-            return rx.toast("Por favor, insira valores numéricos válidos.")
+            yield rx.toast("Por favor, insira valores numéricos válidos.")

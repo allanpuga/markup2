@@ -1,3 +1,14 @@
-reflex==0.8.26
-bcrypt
+cryptography>=46
 requests
+reflex-google-auth
+pymysql>=1.1.2
+aiomysql>=0.2.0
+openpyxl
+httpx
+google-auth
+reflex==0.8.26
+geoalchemy2>=0.18
+bcrypt
+PyGithub
+pymongo
+google-genai

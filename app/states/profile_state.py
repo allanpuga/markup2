@@ -1,8 +1,8 @@
 import reflex as rx
 import requests
 import logging
-
-profiles_db: dict[str, dict] = {}
+from sqlalchemy import text
+from app.utils import _request_with_retry
 
 
 class ProfileState(rx.State):
@@ -26,16 +26,28 @@ class ProfileState(rx.State):
         auth = await self.get_state(AuthState)
         if not auth.user_id:
             return
-        profile = profiles_db.get(auth.user_id, {})
-        self.nome = profile.get("nome", auth.username)
-        self.email = profile.get("email", auth.email)
-        self.estado = profile.get("estado", "")
-        self.cidade = profile.get("cidade", "")
-        self.whatsapp = profile.get("whatsapp", "")
-        self.dias_semana = profile.get("dias_semana", 6)
-        self.horas_dia = profile.get("horas_dia", 8)
-        self.km_dia = float(profile.get("km_dia", 150.0))
-        self.veiculo_ativo_id = profile.get("veiculo_ativo_id", "")
+        try:
+            async with rx.asession() as session:
+                result = await session.execute(
+                    text(
+                        "SELECT nome, email, estado, cidade, whatsapp, dias_semana, horas_dia, km_dia, veiculo_ativo_id FROM profiles WHERE user_id = :user_id"
+                    ),
+                    {"user_id": auth.user_id},
+                )
+                row = result.first()
+                if row:
+                    self.nome = row[0] or auth.username
+                    self.email = row[1] or auth.email
+                    self.estado = row[2] or ""
+                    self.cidade = row[3] or ""
+                    self.whatsapp = row[4] or ""
+                    self.dias_semana = row[5] if row[5] is not None else 6
+                    self.horas_dia = row[6] if row[6] is not None else 8
+                    self.km_dia = float(row[7]) if row[7] is not None else 150.0
+                    self.veiculo_ativo_id = row[8] or ""
+        except Exception as e:
+            logging.exception(f"Error loading profile: {e}")
+            yield rx.toast("Erro ao carregar dados do perfil.")
         if not self.estados:
             yield ProfileState.fetch_estados
         if self.estado:
@@ -46,19 +58,20 @@ class ProfileState(rx.State):
         async with self:
             self.is_loading = True
         try:
-            res = requests.get(
+            res = _request_with_retry(
                 "https://servicodados.ibge.gov.br/api/v1/localidades/estados?orderBy=nome",
                 timeout=10,
             )
-            if res.status_code == 200:
-                estados_data = res.json()
-                async with self:
-                    self.estados = [
-                        {"sigla": s["sigla"], "nome": s["nome"]}
-                        for s in estados_data
-                    ]
+            estados_data = res.json()
+            async with self:
+                self.estados = [
+                    {"sigla": s["sigla"], "nome": s["nome"]}
+                    for s in estados_data
+                ]
         except Exception as e:
             logging.exception(f"Error fetching estados: {e}")
+            async with self:
+                yield rx.toast("Erro ao carregar estados. Tente novamente.")
         finally:
             async with self:
                 self.is_loading = False
@@ -89,26 +102,48 @@ class ProfileState(rx.State):
             self.is_loading = True
             estado = self.estado
         try:
-            res = requests.get(
+            res = _request_with_retry(
                 f"https://servicodados.ibge.gov.br/api/v1/localidades/estados/{estado}/municipios",
                 timeout=10,
             )
-            if res.status_code == 200:
-                cidades_data = res.json()
-                async with self:
-                    self.cidades = [c["nome"] for c in cidades_data]
+            cidades_data = res.json()
+            async with self:
+                self.cidades = [c["nome"] for c in cidades_data]
         except Exception as e:
             logging.exception(f"Error fetching cidades: {e}")
+            async with self:
+                yield rx.toast("Erro ao carregar cidades. Tente novamente.")
         finally:
             async with self:
                 self.is_loading = False
+
+    @rx.event
+    async def update_active_vehicle(self, vehicle_id: str):
+        from app.states.auth_state import AuthState
+
+        auth = await self.get_state(AuthState)
+        if not auth.user_id:
+            return
+        self.veiculo_ativo_id = vehicle_id
+        try:
+            async with rx.asession() as session:
+                await session.execute(
+                    text(
+                        "UPDATE profiles SET veiculo_ativo_id = :v_id WHERE user_id = :uid"
+                    ),
+                    {"v_id": vehicle_id, "uid": auth.user_id},
+                )
+                await session.commit()
+        except Exception as e:
+            logging.exception(f"Error updating active vehicle in profile: {e}")
 
     @rx.event
     async def save_profile(self, form_data: dict):
         nome = form_data.get("nome", "").strip()
         email = form_data.get("email", "").strip()
         if not nome or not email:
-            return rx.toast("Nome e E-mail são obrigatórios.")
+            yield rx.toast("Nome e E-mail são obrigatórios.")
+            return
         from app.states.auth_state import AuthState
 
         auth = await self.get_state(AuthState)
@@ -120,16 +155,34 @@ class ProfileState(rx.State):
             self.horas_dia = int(form_data.get("horas_dia", 8))
             self.km_dia = float(form_data.get("km_dia", 150.0))
         except ValueError:
-            return rx.toast("Valores numéricos inválidos.")
-        profiles_db[auth.user_id] = {
-            "nome": self.nome,
-            "email": self.email,
-            "estado": self.estado,
-            "cidade": self.cidade,
-            "whatsapp": self.whatsapp,
-            "dias_semana": self.dias_semana,
-            "horas_dia": self.horas_dia,
-            "km_dia": self.km_dia,
-            "veiculo_ativo_id": self.veiculo_ativo_id,
-        }
-        return rx.toast("Perfil salvo com sucesso!")
+            yield rx.toast("Valores numéricos inválidos.")
+            return
+        try:
+            async with rx.asession() as session:
+                await session.execute(
+                    text("""
+                    INSERT INTO profiles (user_id, nome, email, estado, cidade, whatsapp, dias_semana, horas_dia, km_dia, veiculo_ativo_id) 
+                    VALUES (:uid, :nome, :email, :estado, :cidade, :whatsapp, :dias, :horas, :km, :veiculo)
+                    ON DUPLICATE KEY UPDATE 
+                        nome = VALUES(nome), email = VALUES(email), estado = VALUES(estado), cidade = VALUES(cidade),
+                        whatsapp = VALUES(whatsapp), dias_semana = VALUES(dias_semana), horas_dia = VALUES(horas_dia), km_dia = VALUES(km_dia)
+                    """),
+                    {
+                        "uid": auth.user_id,
+                        "nome": self.nome,
+                        "email": self.email,
+                        "estado": self.estado,
+                        "cidade": self.cidade,
+                        "whatsapp": self.whatsapp,
+                        "dias": self.dias_semana,
+                        "horas": self.horas_dia,
+                        "km": self.km_dia,
+                        "veiculo": self.veiculo_ativo_id,
+                    },
+                )
+                await session.commit()
+            yield rx.toast("Perfil salvo com sucesso!")
+            yield rx.redirect("/app/veiculos")
+        except Exception as e:
+            logging.exception(f"Error saving profile: {e}")
+            yield rx.toast("Erro ao salvar perfil. Tente novamente.")
