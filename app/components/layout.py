@@ -2,7 +2,17 @@ import reflex as rx
 from app.components.sidebar import sidebar
 from app.states.auth_state import AuthState
 from app.states.sidebar_state import SidebarState
+# ... outros imports de states ...
 
+from app.pages.auth import (
+    login_page,
+    register_page,
+    recover_page,
+    google_callback_page,
+)
+from app.pages.legal import privacy_policy_page, terms_of_service_page
+
+# ... restante do código e rotas da app ...
 
 def base_layout(content: rx.Component, route: str) -> rx.Component:
     """Standard layout for authenticated pages."""
