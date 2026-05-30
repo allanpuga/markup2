@@ -44,7 +44,7 @@ def privacy_content() -> rx.Component:
         ),
         rx.el.section(
             rx.el.h2(
-                "2. Segurança",
+                "2. Security",
                 class_name="text-xl font-bold text-gray-800 mb-4",
             ),
             rx.el.p(
@@ -171,13 +171,13 @@ def login_form() -> rx.Component:
                 rx.el.div(
                     rx.el.a(
                         "Termos",
-                        href="/termos.html",
+                        href="/termos",
                         class_name="text-xs text-gray-400 hover:text-blue-600 transition-colors",
                     ),
                     rx.el.span(" • ", class_name="text-gray-300"),
                     rx.el.a(
                         "Privacidade",
-                        href="/privacidade.html",
+                        href="/privacidade",
                         class_name="text-xs text-gray-400 hover:text-blue-600 transition-colors",
                     ),
                     class_name="mt-8 flex justify-center gap-2",
@@ -291,13 +291,13 @@ def register_page() -> rx.Component:
                         ),
                         rx.el.a(
                             "Termos",
-                            href="/termos.html",
+                            href="/termos",
                             class_name="text-xs text-blue-500 hover:underline",
                         ),
                         rx.el.span(" e ", class_name="text-xs text-gray-400"),
                         rx.el.a(
                             "Privacidade",
-                            href="/privacidade.html",
+                            href="/privacidade",
                             class_name="text-xs text-blue-500 hover:underline",
                         ),
                         class_name="mt-8",
