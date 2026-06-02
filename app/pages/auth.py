@@ -15,7 +15,7 @@ def legal_card(title: str, content_component: rx.Component) -> rx.Component:
                     ),
                     class_name="flex items-center gap-2 text-blue-600 hover:text-blue-700 transition-colors mb-6",
                 ),
-                on_click=lambda _: LegalState.show_login(), # ✅ CORRIGIDO
+                on_click=lambda _: LegalState.show_login(),  # ✅ CORRIGIDO
             ),
             rx.el.h1(title, class_name="text-3xl font-bold text-gray-900 mb-2"),
             rx.el.p(
@@ -146,7 +146,9 @@ def login_form() -> rx.Component:
                         "Entrar com Google",
                         class_name="text-gray-700 font-bold",
                     ),
-                    on_click=lambda _: AuthState.init_google_oauth(), # ✅ CORRIGIDO
+                    on_click=lambda _: (
+                        AuthState.init_google_oauth()
+                    ),  # ✅ CORRIGIDO
                     class_name="w-full bg-white border border-gray-200 py-3 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm flex items-center justify-center gap-2",
                 ),
             ),

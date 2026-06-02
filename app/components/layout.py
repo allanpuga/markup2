@@ -14,6 +14,7 @@ from app.pages.legal import privacy_policy_page, terms_of_service_page
 
 # ... restante do código e rotas da app ...
 
+
 def base_layout(content: rx.Component, route: str) -> rx.Component:
     """Standard layout for authenticated pages."""
     return rx.el.div(

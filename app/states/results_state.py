@@ -29,6 +29,7 @@ class ResultsState(rx.State):
         from app.states.profile_state import ProfileState
         from app.states.vehicle_state import VehicleState
         from app.states.costs_state import CostsState
+        from app.utils import compute_markup_math
 
         profile = await self.get_state(ProfileState)
         vehicle_state = await self.get_state(VehicleState)
@@ -45,132 +46,70 @@ class ResultsState(rx.State):
         )
         if not active_vehicle:
             return
-        km_dia = profile.km_dia
-        dias_semana = profile.dias_semana
-        horas_dia = profile.horas_dia
-        annual_km = km_dia * dias_semana * 52
-        monthly_km = annual_km / 12
-        monthly_hours = horas_dia * dias_semana * 4.33
-        vehicle_monthly_cost = 0
-        if active_vehicle["tipo_posse"] == "Aluguel":
-            vehicle_monthly_cost = (
-                active_vehicle.get("valor_aluguel_semana", 0) * 4.33
-            )
-        elif active_vehicle["tipo_posse"] == "Financiamento":
-            vehicle_monthly_cost = active_vehicle.get("valor_parcela", 0)
+
         fipe_val = costs._parse_fipe(active_vehicle["valor_fipe"])
-        cf_depreciacao_anual = fipe_val * 0.24
-        cf_ipva_anual = costs.cf_ipva
-        cf_licenciamento_anual = costs.cf_licenciamento
-        cf_seguro_obrig_anual = costs.cf_seguro_obrig
-        cf_seguro_carro_anual = costs.cf_seguro_carro
-        cf_financiamento_anual = vehicle_monthly_cost * 12
-        cf_inss_anual = costs.cf_inss * 12
-        cf_internet_anual = costs.cf_internet * 12
-        total_cf_anual = (
-            cf_depreciacao_anual
-            + cf_ipva_anual
-            + cf_licenciamento_anual
-            + cf_seguro_obrig_anual
-            + cf_seguro_carro_anual
-            + cf_financiamento_anual
-            + cf_inss_anual
-            + cf_internet_anual
+
+        math_results = compute_markup_math(
+            km_dia=profile.km_dia,
+            dias_semana=profile.dias_semana,
+            horas_dia=profile.horas_dia,
+            tipo_posse=active_vehicle["tipo_posse"],
+            valor_aluguel_semana=float(
+                active_vehicle.get("valor_aluguel_semana", 0.0)
+            ),
+            valor_parcela=float(active_vehicle.get("valor_parcela", 0.0)),
+            fipe_val=fipe_val,
+            cf_ipva=costs.cf_ipva,
+            cf_licenciamento=costs.cf_licenciamento,
+            cf_seguro_obrig=costs.cf_seguro_obrig,
+            cf_seguro_carro=costs.cf_seguro_carro,
+            cf_inss=costs.cf_inss,
+            cf_internet=costs.cf_internet,
+            cv_alim_dia=costs.cv_alim_dia,
+            preco_comb=costs.preco_comb,
+            consumo_comb=costs.consumo_comb,
+            cv_manut_mensal=costs.cv_manut_mensal,
+            cv_oleo=costs.cv_oleo,
+            cv_pneu=costs.cv_pneu,
+            cv_lavagem=costs.cv_lavagem,
+            cv_alinhamento=costs.cv_alinhamento,
+            cp_ipca=costs.cp_ipca,
+            cp_iss=costs.cp_iss,
+            cp_icms=costs.cp_icms,
+            margem_iss=costs.margem_iss,
+            margem_icms=costs.margem_icms,
+            remuneracao_semanal=costs.remuneracao_semanal,
         )
-        cv_alimentacao_anual = costs.cv_alim_dia * dias_semana * 52
-        daily_fuel = km_dia / max(costs.consumo_comb, 0.1) * costs.preco_comb
-        cv_combustivel_anual = daily_fuel * dias_semana * 52
-        cv_oleo_anual = annual_km / 10000 * costs.cv_oleo
-        cv_pneu_anual = annual_km / 60000 * costs.cv_pneu
-        cv_manut_anual = costs.cv_manut_mensal * 12
-        cv_lavagem_anual = costs.cv_lavagem * 12
-        cv_alinhamento_anual = (
-            annual_km / 10000 * costs.cv_alinhamento
-            if costs.cv_alinhamento > 0
-            else 0
-        )
-        total_cv_anual = (
-            cv_alimentacao_anual
-            + cv_combustivel_anual
-            + cv_oleo_anual
-            + cv_pneu_anual
-            + cv_manut_anual
-            + cv_lavagem_anual
-            + cv_alinhamento_anual
-        )
-        custo_operacional_anual = total_cf_anual + total_cv_anual
-        cp_ipca_anual = custo_operacional_anual * (costs.cp_ipca / 100)
-        cp_iss_anual = costs.remuneracao_semanal * (costs.cp_iss / 100) * 52
-        cp_icms_anual = costs.remuneracao_semanal * (costs.cp_icms / 100) * 52
-        total_costs_with_taxes_iss = (
-            custo_operacional_anual + cp_ipca_anual + cp_iss_anual
-        )
-        profit_margin_iss = total_costs_with_taxes_iss * (
-            costs.margem_iss / 100
-        )
-        markup_iss_anual = total_costs_with_taxes_iss + profit_margin_iss
-        total_costs_with_taxes_icms = (
-            custo_operacional_anual + cp_ipca_anual + cp_icms_anual
-        )
-        profit_margin_icms = total_costs_with_taxes_icms * (
-            costs.margem_icms / 100
-        )
-        markup_icms_anual = total_costs_with_taxes_icms + profit_margin_icms
-        total_cp_iss_anual = cp_iss_anual + cp_ipca_anual
-        total_cp_icms_anual = cp_icms_anual + cp_ipca_anual
-        custo_operacional_mensal = custo_operacional_anual / 12
-        if monthly_km > 0:
-            self.custo_por_km = custo_operacional_mensal / monthly_km
-        else:
-            self.custo_por_km = 0
-        if monthly_hours > 0:
-            self.custo_por_hora = custo_operacional_mensal / monthly_hours
-        else:
-            self.custo_por_hora = 0
-        self.custo_operacional_mensal = custo_operacional_mensal
-        markup_iss_mensal = markup_iss_anual / 12
-        if monthly_km > 0:
-            self.valor_ideal_km = markup_iss_mensal / monthly_km
-        else:
-            self.valor_ideal_km = 0
-        if monthly_hours > 0:
-            self.valor_ideal_hora = markup_iss_mensal / monthly_hours
-        else:
-            self.valor_ideal_hora = 0
-        self.total_cf = total_cf_anual / 12
-        self.total_cv = total_cv_anual / 12
-        self.total_cp_iss = total_cp_iss_anual / 12
-        self.total_cp_icms = total_cp_icms_anual / 12
-        self.custo_mensal_total = custo_operacional_mensal
-        self.markup_iss = (
-            (markup_iss_anual / custo_operacional_anual - 1) * 100
-            if custo_operacional_anual > 0
-            else 0
-        )
-        self.markup_icms = (
-            (markup_icms_anual / custo_operacional_anual - 1) * 100
-            if custo_operacional_anual > 0
-            else 0
-        )
-        self.markup_sugerido = self.markup_iss
-        self.faturamento_bruto = markup_iss_mensal
-        days_per_month = dias_semana * 4.33
-        self.custo_diario = (
-            custo_operacional_mensal / days_per_month
-            if days_per_month > 0
-            else 0
-        )
-        self.custo_semanal = self.custo_diario * dias_semana
-        impostos_mensais = total_cp_iss_anual / 12
+
+        self.custo_por_km = math_results["custo_por_km"]
+        self.custo_por_hora = math_results["custo_por_hora"]
+        self.custo_operacional_mensal = math_results["custo_mensal_total"]
+        self.valor_ideal_km = math_results["valor_ideal_km"]
+        self.valor_ideal_hora = math_results["valor_ideal_hora"]
+        self.total_cf = math_results["total_cf"]
+        self.total_cv = math_results["total_cv"]
+        self.total_cp_iss = math_results["total_cp_iss"]
+        self.total_cp_icms = math_results["total_cp_icms"]
+        self.custo_mensal_total = math_results["custo_mensal_total"]
+        self.markup_iss = math_results["markup_iss"]
+        self.markup_icms = math_results["markup_icms"]
+        self.markup_sugerido = math_results["markup_sugerido"]
+        self.faturamento_bruto = math_results["faturamento_bruto"]
+        self.custo_diario = math_results["custo_diario"]
+        self.custo_semanal = math_results["custo_semanal"]
+
         self.bar_chart_data = [
             {"name": "Fixos", "valor": round(self.total_cf, 2)},
             {"name": "Variáveis", "valor": round(self.total_cv, 2)},
-            {"name": "Impostos", "valor": round(impostos_mensais, 2)},
+            {
+                "name": "Impostos",
+                "valor": round(math_results["total_cp_iss_anual"] / 144, 2),
+            },
         ]
-        combustivel_mensal = cv_combustivel_anual / 12
-        oleo_mensal = cv_oleo_anual / 12
-        pneu_mensal = cv_pneu_anual / 12
-        vehicle_monthly = cf_financiamento_anual / 12
+        combustivel_mensal = math_results["cv_combustivel_anual"] / 12
+        oleo_mensal = math_results["cv_oleo_anual"] / 12
+        pneu_mensal = math_results["cv_pneu_anual"] / 12
+        vehicle_monthly = math_results["cf_financiamento_anual"] / 12
         self.pie_chart_data = [
             {"name": "Veículo", "value": round(vehicle_monthly, 2)},
             {"name": "Combustível", "value": round(combustivel_mensal, 2)},
@@ -178,10 +117,10 @@ class ResultsState(rx.State):
                 "name": "Manutenção",
                 "value": round(
                     (
-                        cv_manut_anual
-                        + cv_oleo_anual
-                        + cv_pneu_anual
-                        + cv_alinhamento_anual
+                        math_results["cv_manut_anual"]
+                        + math_results["cv_oleo_anual"]
+                        + math_results["cv_pneu_anual"]
+                        + math_results["cv_alinhamento_anual"]
                     )
                     / 12,
                     2,
@@ -190,19 +129,24 @@ class ResultsState(rx.State):
             {
                 "name": "Outros Fixos",
                 "value": round(
-                    (total_cf_anual - cf_financiamento_anual) / 12, 2
+                    (
+                        math_results["total_cf_anual"]
+                        - math_results["cf_financiamento_anual"]
+                    )
+                    / 12,
+                    2,
                 ),
             },
             {
                 "name": "Outros Vars",
                 "value": round(
                     (
-                        total_cv_anual
-                        - cv_combustivel_anual
-                        - cv_oleo_anual
-                        - cv_pneu_anual
-                        - cv_manut_anual
-                        - cv_alinhamento_anual
+                        math_results["total_cv_anual"]
+                        - math_results["cv_combustivel_anual"]
+                        - math_results["cv_oleo_anual"]
+                        - math_results["cv_pneu_anual"]
+                        - math_results["cv_manut_anual"]
+                        - math_results["cv_alinhamento_anual"]
                     )
                     / 12,
                     2,
